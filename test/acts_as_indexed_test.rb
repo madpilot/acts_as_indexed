@@ -4,10 +4,12 @@ class ActsAsIndexedTest < ActiveSupport::TestCase
   fixtures :posts
 
   def setup
+    Post.acts_as_indexed :fields => [:title, :body]
     destroy_index
   end
 
   def teardown
+    Post.acts_as_indexed :fields => [:title, :body]
     destroy_index
   end
 
@@ -44,9 +46,9 @@ class ActsAsIndexedTest < ActiveSupport::TestCase
   # After a portion of a record has been removed
   # the portion removes should no longer be in the index.
   def test_updates_index
-    p = Post.create(:title => 'A special title', :body => 'foo bar bla bla bla')
+    p = Post.create(:title => 'a special title', :body => 'foo bar bla bla bla')
     assert Post.find_with_index('title',{},{:ids_only => true}).include?(p.id)
-    p.update_attributes(:title => 'No longer special')
+    p.update_attributes(:title => 'no longer special')
     assert !Post.find_with_index('title',{},{:ids_only => true}).include?(p.id)
   end
 
@@ -92,11 +94,73 @@ class ActsAsIndexedTest < ActiveSupport::TestCase
   # When a atom already in a record is duplicated, it removes 
   # all records with that same atom from the index.
   def test_update_record_bug
-    assert_equal 2, Post.find_with_index('crane',{},{:ids_only => true}).size
     p = Post.find(6)
     assert p.update_attributes(:body => p.body + ' crane')
     assert_equal 2, Post.find_with_index('crane',{},{:ids_only => true}).size
     assert_equal 2, Post.find_with_index('ship',{},{:ids_only => true}).size
   end
-  
+
+  # If an if proc is supplied, the index should only be created if the proc evaluated true
+  def test_create_if
+    Post.acts_as_indexed :fields => [:title, :body], :if => Proc.new { |post| post.visible }
+    
+    original_post_count = Post.count
+    assert_equal [], Post.find_with_index('badger')
+    p = Post.new(:title => 'badger', :body => 'thousands of them!', :visible => true)
+    assert p.save
+    assert_equal original_post_count + 1, Post.count
+    assert_equal [p.id], Post.find_with_index('badger', {}, { :no_query_cache => true, :ids_only => true})
+
+    original_post_count = Post.count
+    assert_equal [], Post.find_with_index('unicorns')
+    p = Post.new(:title => 'unicorns', :body => 'there are none', :visible => false)
+    assert p.save
+    assert_equal original_post_count + 1, Post.count
+    assert_equal [], Post.find_with_index('unicorns', {}, { :no_query_cache => true, :ids_only => true})
+  end
+
+  # If an index already exists, and an if proc is supplied, and the proc is true, it should still appear in the index
+  def test_update_if_update
+    Post.acts_as_indexed :fields => [:title, :body], :if => Proc.new { |post| post.visible }
+    destroy_index
+    
+    assert_equal 1, Post.find_with_index('crane', {}, { :no_query_cache => true, :ids_only => true}).size
+    p = Post.find(6)
+    assert p.update_attributes(:visible => true)
+    assert_equal 1, Post.find_with_index('crane', {}, { :no_query_cache => true, :ids_only => true}).size
+  end
+
+  # If an index already exists, and an if proc is supplied, and the proc is false, it should no longer appear in the index
+  def test_update_if_remove
+    Post.acts_as_indexed :fields => [:title, :body], :if => Proc.new { |post| post.visible }
+    destroy_index
+    
+    assert_equal 1, Post.find_with_index('crane', {}, { :no_query_cache => true, :ids_only => true}).size
+    p = Post.find(6)
+    assert p.update_attributes(:visible => false)
+    assert_equal 0, Post.find_with_index('crane',{},{ :no_query_cache => true, :ids_only => true}).size
+  end
+
+  # If an index doesn't exist, and an if proc is supplied, and the proc is true, it should appear in the index
+  def test_update_if_add
+    Post.acts_as_indexed :fields => [:title, :body], :if => Proc.new { |post| post.visible }
+    destroy_index
+    
+    assert_equal 1, Post.find_with_index('crane', {}, { :no_query_cache => true, :ids_only => true}).size
+    p = Post.find(5)
+    assert p.update_attributes(:visible => true)
+    assert_equal 2, Post.find_with_index('crane',{},{ :no_query_cache => true, :ids_only => true}).size
+  end
+
+  # If an index doesn't exist, and an if proc is supplied, and the proc is false, then nothing happens
+  def test_update_if_not_in
+    Post.acts_as_indexed :fields => [:title, :body], :if => Proc.new { |post| post.visible }
+    destroy_index
+    
+    assert_equal 1, Post.find_with_index('crane', {}, { :no_query_cache => true, :ids_only => true}).size
+    p = Post.find(5)
+    assert p.update_attributes(:visible => false)
+    assert_equal 1, Post.find_with_index('crane',{},{ :no_query_cache => true, :ids_only => true}).size
+  end
+
 end

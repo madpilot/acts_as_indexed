@@ -33,6 +33,9 @@ module Foo #:nodoc:
         #              RAILS_ROOT/index. Specify as an array. Heroku, for
         #              example would use RAILS_ROOT/tmp/index, which would be
         #              set as [RAILS_ROOT,'tmp','index]
+        # if::         Proc that allows you to turn on or off index for a record
+        #              useful if you don't want the index to be updated if the target model is
+        #              should not return up in results, such as a draft post.
 
         def acts_as_indexed(options = {})
           class_eval do
@@ -51,7 +54,8 @@ module Foo #:nodoc:
             :index_file => [RAILS_ROOT,'index'],
             :index_file_depth => 3,
             :min_word_size => 3,
-            :fields => []
+            :fields => [],
+            :if => Proc.new { |post| true }
           }
 
           aai_config[:index_file] += [RAILS_ENV,name]
@@ -66,7 +70,7 @@ module Foo #:nodoc:
 
         def index_add(record)
           build_index if !File.exists?(File.join(aai_config[:index_file]))
-          index = SearchIndex.new(aai_config[:index_file], aai_config[:index_file_depth], aai_config[:fields], aai_config[:min_word_size])
+          index = SearchIndex.new(aai_config[:index_file], aai_config[:index_file_depth], aai_config[:fields], aai_config[:min_word_size], aai_config[:if])
           index.add_record(record)
           index.save
           @query_cache = {}
@@ -76,7 +80,7 @@ module Foo #:nodoc:
         # Removes the passed +record+ from the index. Clears the query cache.
 
         def index_remove(record)
-          index = SearchIndex.new(aai_config[:index_file], aai_config[:index_file_depth], aai_config[:fields], aai_config[:min_word_size])
+          index = SearchIndex.new(aai_config[:index_file], aai_config[:index_file_depth], aai_config[:fields], aai_config[:min_word_size], aai_config[:if])
           # record won't be in index if it doesn't exist. Just return true.
           return true if !index.exists?
           index.remove_record(record)
@@ -91,7 +95,7 @@ module Foo #:nodoc:
         
         def index_update(record)
           build_index if !File.exists?(File.join(aai_config[:index_file]))
-          index = SearchIndex.new(aai_config[:index_file], aai_config[:index_file_depth], aai_config[:fields], aai_config[:min_word_size])
+          index = SearchIndex.new(aai_config[:index_file], aai_config[:index_file_depth], aai_config[:fields], aai_config[:min_word_size], aai_config[:if])
           #index.remove_record(find(record.id))
           #index.add_record(record)
           index.update_record(record,find(record.id))
@@ -121,7 +125,7 @@ module Foo #:nodoc:
           if !@query_cache || !@query_cache[query]
             logger.debug('Query not in cache, running search.')
             build_index if !File.exists?(File.join(aai_config[:index_file]))
-            index = SearchIndex.new(aai_config[:index_file], aai_config[:index_file_depth], aai_config[:fields], aai_config[:min_word_size])
+            index = SearchIndex.new(aai_config[:index_file], aai_config[:index_file_depth], aai_config[:fields], aai_config[:min_word_size], aai_config[:if])
             @query_cache = {} if !@query_cache
             @query_cache[query] = index.search(query)
           else
@@ -167,7 +171,7 @@ module Foo #:nodoc:
           offset = 0
           while (records = find(:all, :limit => increment, :offset => offset)).size > 0
             #p "offset is #{offset}, increment is #{increment}"
-            index = SearchIndex.new(aai_config[:index_file], aai_config[:index_file_depth], aai_config[:fields], aai_config[:min_word_size])
+            index = SearchIndex.new(aai_config[:index_file], aai_config[:index_file_depth], aai_config[:fields], aai_config[:min_word_size], aai_config[:if])
             offset += increment
             index.add_records(records)
             index.save

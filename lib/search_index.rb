@@ -12,17 +12,20 @@ module Foo #:nodoc:
         # index_depth:: Degree of index partitioning.
         # fields:: Fields or instance methods of ActiveRecord model to be indexed.
         # min_word_size:: Smallest query term that will be run through search.
-        def initialize(root, index_depth, fields, min_word_size)
+        # if_proc:: A Proc. If the proc is true, the index gets added, if false if doesn't
+        def initialize(root, index_depth, fields, min_word_size, if_proc)
           @root = root
           @fields = fields
           @index_depth = index_depth
           @atoms = {}
           @min_word_size = min_word_size
           @records_size = exists? ? load_record_size : 0
+          @if_proc = if_proc
         end
 
         # Adds +record+ to the index.
         def add_record(record)
+          return @records_size unless @if_proc.call(record)
           condensed_record = condense_record(record)
           load_atoms(condensed_record)
           add_occurences(condensed_record,record.id)
@@ -32,10 +35,12 @@ module Foo #:nodoc:
         # Adds multiple records to the index. Accepts an array of +records+.
         def add_records(records)
           records.each do |r|
-            condensed_record = condense_record(r)
-            load_atoms(condensed_record)
-            add_occurences(condensed_record,r.id)
-            @records_size += 1
+            if @if_proc.call(r)
+              condensed_record = condense_record(r)
+              load_atoms(condensed_record)
+              add_occurences(condensed_record,r.id)
+              @records_size += 1
+            end
           end
         end
 
@@ -55,7 +60,7 @@ module Foo #:nodoc:
           # Minimises loading and saving of partitions.
           old_atoms = condense_record(record_old)
           new_atoms = condense_record(record_new)
-
+          
           # Remove the old version from the appropriate atoms.
           load_atoms(old_atoms)
           old_atoms.each do |a|
@@ -63,10 +68,12 @@ module Foo #:nodoc:
           end
 
           # Add the new version to the appropriate atoms.
-          load_atoms(new_atoms)
-          # TODO: Make a version of this method that takes the
-          # atomised version of the record.
-          add_occurences(new_atoms, record_new.id)
+          if @if_proc.call(record_new)
+            load_atoms(new_atoms)
+            # TODO: Make a version of this method that takes the
+            # atomised version of the record.
+            add_occurences(new_atoms, record_new.id)
+          end
         end
 
         # Saves the current index partitions to the filesystem.
